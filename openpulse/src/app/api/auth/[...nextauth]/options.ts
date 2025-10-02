@@ -1,4 +1,4 @@
-import { NextAuthOptions } from 'next-auth'
+import { NextAuthOptions , DefaultUser, Session } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import UserModel, { User } from '@/models/User.model'
@@ -10,6 +10,15 @@ type CredentialsType = {
   password: string;
 };
 
+type CustomUser = DefaultUser & {
+  _id?: string;
+  isVerified?: boolean;
+  isAcceptingMessage?: boolean;
+  username?: string;
+};
+
+type authorize = (credentials: CredentialsType | undefined) => Promise<CustomUser | null>;
+
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -19,14 +28,14 @@ export const authOptions: NextAuthOptions = {
         email: { label: "Email", type: "text", placeholder: "Husnain" },
         password: { label: "Password", type: "password" }
       },
-      async authorize(credentials: CredentialsType | undefined): Promise<User | null> {
+      async authorize(credentials: CredentialsType | undefined): Promise<CustomUser | null> {
         if (!credentials) {
           throw new Error("No credentials provided");
         }
 
         await dbConnect();
 
-        const user = await UserModel.findOne({ email: credentials.email });
+        const user = await UserModel.findOne({ email: credentials.email }) as User | null;
         if (!user) {
           throw new Error("User not found with this email");
         }
@@ -43,23 +52,35 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Invalid password");
         }
 
-        return user;
+        return {
+          id: user._id?.toString() || "", // Required by DefaultUser
+          _id: user._id?.toString(),
+          email: user.email,
+          isVerified: user.isVerified,
+          isAcceptingMessage: user.isAcceptingMessage,
+          username: user.username,
+        };
       }
     })
   ],
 
   callbacks: {
     async session({ session, token }) {
+        if (token) {
+          session.user._id = token._id as string;
+          session.user.isVerified = token.isVerified as boolean;
+        }
       return session;
     },
 
     async jwt({ token, user }) { 
-    if (user) {
+      if (user) {
         token._id = user._id?.toString();
         token.isVerified = user.isVerified;
         token.isAcceptingMessage = user.isAcceptingMessage;
         token.username = user.username;
       }
+      return token;
     },
   },
 
